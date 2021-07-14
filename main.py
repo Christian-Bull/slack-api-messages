@@ -1,7 +1,8 @@
 import os
-import sqlite3
-import json
+import csv
+from time import sleep
 from datetime import datetime
+from pprint import pprint
 from slack import WebClient
 import slack.errors
 
@@ -12,24 +13,26 @@ class Workspace:
         # slack api token
         self.token = token
 
-    # gets all channels for a workspace
+        # create client
         self.client = WebClient(self.token)
 
-        # try api call
+        # get all channels
         try:
             channel_response = self.client.conversations_list(
                 types="public_channel")
+
+            if channel_response['ok'] == True:
+                self.channel_dict = {}
+
+                for channel in channel_response['channels']:
+                    self.channel_dict[channel['id']] = channel['name']
+            
         except slack.errors.SlackApiError as e:
             assert e.response["ok"] is False
             assert e.response["error"]
             print('Api failed: {}'.format(e.response["error"]))
 
-        if channel_response['ok'] == True:
-            self.channel_dict = {}
-            for channel in channel_response['channels']:
-                self.channel_dict[channel['id']] = channel['name']
-
-    # gets all users for a workspace
+        # gets all users for a workspace
         # try api call
         try:
             user_response = self.client.users_list()
@@ -44,36 +47,104 @@ class Workspace:
             for user in user_response['members']:
                 self.users[user['id']] = user['name']
 
-    # gets all messages from the channel names provided
-    def get_messages(self, channels):
-        client = WebClient(self.token)
+    # gets all messages from the channel name provided
+    def get_messages(self, channel, **kwargs):
 
-        for channel in channels:
-            # gets channel id
+        # gets channel id and messages
+        try:
             c = list(self.channel_dict.keys())[
                 list(self.channel_dict.values()).index(channel)]
-            results = client.conversations_history(
+
+            results = self.client.conversations_history(
                 token=self.token,
                 channel=c,
-                limit=1000
+                limit=1000,
+                latest=kwargs.get('latest', None)  # defaults to now
             )
-            for message in results['messages']:
-                if message['type'] == "message":
-                    # empty try because I'm lazy, only want user messages
-                    ts = datetime.utcfromtimestamp(int(float(message['ts']))).strftime('%Y-%m-%d %H:%M:%S')
-                    try:
-                        ts = datetime.utcfromtimestamp(int(float(message['ts']))).strftime('%Y-%m-%d %H:%M:%S')
-                        msg = {
-                            'user': self.users[message['user']],
-                            'channel': channel,
-                            'text': message['text'],
-                            'timestamp': message['ts'],
-                            'utc_time': ts
-                        }
-                        insert_data(msg)
+
+            # lazy way of getting around the rate limit
+            print("zzz + channel: {0} timestamp: {1}".format(channel, datetime.now()))
+            sleep(2)
+
+
+        except ValueError as e:
+            print("Channel {0} not in workspace: {1}".format(channel, e))
+
+        except slack.errors.SlackApiError as e:
+            print("Slack API error: {0}".format(e))
+            return None
+
+        messages = []
+
+        for message in results['messages']:
+            if message['type'] == "message":
+
+                # empty try because I'm lazy, only want user messages
+                try:
+                    ts = datetime.utcfromtimestamp(
+                        int(float(message['ts']))).strftime('%Y-%m-%d %H:%M:%S')
+                    msg = {
+                        'ts': message['ts'],
+                        'utc_time': ts,
+                        'user': self.users[message['user']],
+                        'channel': channel,
+                        'text': message['text']
+                    }
+                    messages.append(msg)
+                except Exception as e:
+                    pass
+
+        return messages
+
+    # returns all messages and outputs to csv, gets around the 1k limit
+    def get_all_messages(self):
+        # gets all channels
+        channels = self.get_channels()
+
+        for channel in channels:
+            
+            # empty vars to get our loop started
+            ts = ''
+            messages = True 
+
+            while messages:
+                messages = self.get_messages(channel, latest=ts)
+                
+                # if there's any messages in the channel, save to csv
+                if messages:
+                    filename = 'src/' + str(channel) + '.csv'
+                    self.output_msgs_to_csv(filename, messages)
+
+                    ts = messages[-1]['ts']
                     
-                    except Exception as e:
-                        pass
+
+
+    # outputs messages to csv
+    def output_msgs_to_csv(self, file, messages):
+
+        # if file doesn't exist, create one and insert headers
+        if os.path.isfile(file) == False:
+            headers = []
+            for key in messages[0]:
+                headers.append(key)
+
+            with open(file, mode='w') as outputfile:
+                output_writer = csv.writer(outputfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+                output_writer.writerow(headers)
+
+        # open csv in append mode and insert data
+        with open(file, mode='a') as outputfile:
+            output_writer = csv.writer(outputfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+            reader = csv.reader(outputfile)
+
+            # loops through messages and writes to csv
+            for message in messages:
+                row = []
+                
+                for key in message:
+                    row.append(message[key])
+
+                output_writer.writerow(row)
 
 
     # outputs info about a workplace
@@ -81,57 +152,27 @@ class Workspace:
         print(self.channel_dict)
         print(self.users)
 
+    # lists all channels by name
+    def get_channels(self):
+        channels = []
+        
+        for key in self.channel_dict:
+            channels.append(self.channel_dict[key])
+
+        return channels
+    
 
 # gets token info
 def slacktoken():
     return os.environ.get('SLACKTOKEN')
 
 
-# creates table it it's not already created
-def create_db():
-    conn = sqlite3.connect('src/slack')
-    c = conn.cursor()
-
-    # this might be sql injection idk it doesn't matter
-    c.execute('''CREATE TABLE IF NOT EXISTS slack
-                            (user text,
-                             channel text,
-                             timestamp text,
-                             utc_time text,
-                             msg text)''')
-
-    conn.commit()
-    conn.close()
-
-
-# takes dict and makes insert statement
-def insert_data(msg):
-    conn = sqlite3.connect('src/slack')
-    c = conn.cursor()
-
-    # users sqlite3 concatination insated of python
-    c.execute('INSERT INTO slack VALUES (?, ?, ?, ?, ?)',
-              (msg['user'],
-               msg['channel'],
-               msg['timestamp'],
-               msg['utc_time'],
-               msg['text']))
-    conn.commit()
-    conn.close()
-
-
 def main():
     # creates workspace instance
     workspace = Workspace(slacktoken())
 
-    # creates db
-    create_db()
+    workspace.get_all_messages()
 
-    # inserts messages into db
-    # just gets one channel right now for testing
-    workspace.get_messages([
-        os.environ.get('CHANNEL')
-    ])
 
 # runs everything
 main()
