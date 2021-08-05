@@ -3,8 +3,8 @@ import csv
 from time import sleep
 from datetime import datetime
 from pprint import pprint
-from slack import WebClient
-import slack.errors
+from slack_sdk import WebClient
+import slack_sdk.errors
 
 
 # slack object, basically info related to a slack workspace
@@ -27,7 +27,7 @@ class Workspace:
                 for channel in channel_response['channels']:
                     self.channel_dict[channel['id']] = channel['name']
             
-        except slack.errors.SlackApiError as e:
+        except slack_sdk.errors.SlackApiError as e:
             assert e.response["ok"] is False
             assert e.response["error"]
             print('Api failed: {}'.format(e.response["error"]))
@@ -36,7 +36,7 @@ class Workspace:
         # try api call
         try:
             user_response = self.client.users_list()
-        except slack.errors.SlackApiError as e:
+        except slack_sdk.errors.SlackApiError as e:
             assert e.response["ok"] is False
             assert e.response["error"]
             print('Api failed: {}'.format(e.response["error"]))
@@ -70,7 +70,7 @@ class Workspace:
         except ValueError as e:
             print("Channel {0} not in workspace: {1}".format(channel, e))
 
-        except slack.errors.SlackApiError as e:
+        except slack_sdk.errors.SlackApiError as e:
             print("Slack API error: {0}".format(e))
             return None
 
@@ -97,9 +97,19 @@ class Workspace:
         return messages
 
     # returns all messages and outputs to csv, gets around the 1k limit
-    def get_all_messages(self):
+    def get_all_messages(self, channel = None):
+        
         # gets all channels
         channels = self.get_channels()
+
+        # if a channel argument was given, ensure it's valid
+        if channel:
+            if (channel in channels):
+
+                # clear the current list and only add the provided channel
+                channels.clear()
+                channels.append(channel)
+
 
         for channel in channels:
             
@@ -168,10 +178,17 @@ def slacktoken():
 
 
 def main():
+
+    # check if a channel is provided
+    if 'CHANNEL' in os.environ:
+        channel = os.environ.get('CHANNEL')
+    else:
+        channel = None
+
     # creates workspace instance
     workspace = Workspace(slacktoken())
 
-    workspace.get_all_messages()
+    workspace.get_all_messages(channel=channel)
 
 
 # runs everything

@@ -1,8 +1,8 @@
 # slack-messages
 
-Quick wip script for exporting slack messages to a sqlite3 db
+Quick wip script for exporting slack messages to csv
 
-Creates a db in `./src`
+Creates a csv file for each channel in `./src`
 
 Add the following env vars:
     

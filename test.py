@@ -1,8 +1,6 @@
 import os
-from slack import WebClient
+from slack_sdk import WebClient
 
 client = WebClient(token=os.environ['SLACKTOKEN'])
 
-api_response = client.api_test()
-
-print(api_response)
+print(client.api_test())
