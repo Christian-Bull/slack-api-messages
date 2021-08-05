@@ -1,5 +1,4 @@
-import os
-import csv
+import os, sys, csv
 from time import sleep
 from datetime import datetime
 from pprint import pprint
@@ -159,8 +158,8 @@ class Workspace:
 
     # outputs info about a workplace
     def print_info(self):
-        print(self.channel_dict)
-        print(self.users)
+        pprint(self.channel_dict)
+        pprint(self.users)
 
     # lists all channels by name
     def get_channels(self):
@@ -179,7 +178,7 @@ def slacktoken():
 
 # runs everything
 if __name__ == "__main__":
-
+    
     # check if a channel is provided
     if 'CHANNEL' in os.environ:
         channel = os.environ.get('CHANNEL')
@@ -189,4 +188,9 @@ if __name__ == "__main__":
     # creates workspace instance
     workspace = Workspace(slacktoken())
 
-    workspace.get_all_messages(channel=channel)
+    # checks for info flags
+    if any(x in sys.argv for x in ['-i', '--info']):
+        workspace.print_info()
+
+    else:
+        workspace.get_all_messages(channel=channel)
