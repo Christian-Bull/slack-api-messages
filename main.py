@@ -177,7 +177,8 @@ def slacktoken():
     return os.environ.get('SLACKTOKEN')
 
 
-def main():
+# runs everything
+if __name__ == "__main__":
 
     # check if a channel is provided
     if 'CHANNEL' in os.environ:
@@ -189,7 +190,3 @@ def main():
     workspace = Workspace(slacktoken())
 
     workspace.get_all_messages(channel=channel)
-
-
-# runs everything
-main()
